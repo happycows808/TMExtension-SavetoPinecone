@@ -126,6 +126,8 @@
   `;
   document.head.appendChild(style);
 
+  await loadTiktoken();
+
   function debounce(func, wait) {
     let timeout;
     return function(...args) {
@@ -359,29 +361,20 @@ function addSaveButton() {
     settingsButton.parentElement.insertBefore(saveButton, settingsButton.nextSibling);
   }
 
-  async function loadTiktoken() {
-    return new Promise((resolve, reject) => {
-      if (typeof Tiktoken !== 'undefined') {
-        resolve();
-        return;
-      }
-      const existingScript = document.getElementById('tiktoken-script');
-      if (!existingScript) {
-        const script = document.createElement('script');
-        script.src = 'https://unpkg.com/js-tiktoken@1.0.19/lite.js';
-        script.id = 'tiktoken-script';
-        script.onload = () => {
-          resolve();
-        };
-        script.onerror = () => {
-          reject(new Error('Failed to load js-tiktoken library.'));
-        };
-        document.head.appendChild(script);
-      } else {
-        resolve();
-      }
-    });
-  }
+ async function loadTiktoken() {
+  if (typeof Tiktoken !== 'undefined') return;
+  return new Promise(async (resolve, reject) => {
+    try {
+      const {
+        Tiktoken
+      } = await import('https://esm.sh/js-tiktoken@1.0.19/lite');
+      window.Tiktoken = Tiktoken;
+      resolve();
+    } catch (error) {
+      reject(new Error('Failed to load js-tiktoken library: ' + error));
+    }
+  });
+}
 
   async function fetchEncoding(encodingName) {
     const res = await fetch(`https://tiktoken.pages.dev/js/${encodingName}.json`);
@@ -404,56 +397,77 @@ function addSaveButton() {
     }
   }
 
-  async function embedChatData(pineconeData) {
-    try {
-      await loadTiktoken();
+async function embedChatData(pineconeData) {
+  try {
+    await loadTiktoken();
+    const openaiApiKey = localStorage.getItem('saveExtension-pinecone-openai-api-key');
+    const openaiModel = localStorage.getItem('saveExtension-openai-model');
+    const embeddingDimension = localStorage.getItem('saveExtension-embedding-dimension');
+    if (!openaiApiKey || !openaiModel) throw new Error('OpenAI API key and model must be configured.');
+    const encodingName = getEncodingName(openaiModel);
+    const encodingData = await fetchEncoding(encodingName);
+    const encoder = new Tiktoken(encodingData);
+    const messages = pineconeData.messages;
+    const embeddedMessages = [];
+    const overlapSize = 1;
+    let currentBatch = [];
+    let currentBatchTokens = 0;
+    let previousBatchTail = [];
+    const tokenCache = {};
+    const baseMaxTokens = 8191;
+    const minSafetyMargin = 50;
+    const metadataSizeFactor = 0.1;
 
-      const openaiApiKey = localStorage.getItem('saveExtension-pinecone-openai-api-key');
-      const openaiModel = localStorage.getItem('saveExtension-openai-model');
-      const embeddingDimension = localStorage.getItem('saveExtension-embedding-dimension');
+    function byteSize(str) {
+      return new Blob([str]).size;
+    }
 
-      if (!openaiApiKey || !openaiModel) {
-        throw new Error('OpenAI API key and model must be configured.');
+    for (const message of messages) {
+      const content = typeof message.content === 'string' ? message.content : JSON.stringify(message.content);
+      let messageTokens = tokenCache[content];
+      if (messageTokens === undefined) {
+        messageTokens = encoder.encode(content).length;
+        tokenCache[content] = messageTokens;
       }
-
-      const encodingName = getEncodingName(openaiModel);
-      const encodingData = await fetchEncoding(encodingName);
-
-      const { Tiktoken } = await import('https://esm.sh/js-tiktoken@1.0.19/lite');
-      const encoder = new Tiktoken(encodingData);
-
-      const messages = pineconeData.messages;
-      const embeddedMessages = [];
-      const maxTokens = 8192;
-      let currentBatch = [];
-      let currentBatchTokens = 0;
-
-      for (const message of messages) {
-        const content = typeof message.content === 'string' ? message.content : JSON.stringify(message.content);
-        const messageTokens = encoder.encode(content).length;
-
-        if (currentBatchTokens + messageTokens > maxTokens) {
-          const embeddings = await getEmbeddings(currentBatch, openaiApiKey, openaiModel, embeddingDimension);
-          embeddedMessages.push(...embeddings);
-          currentBatch = [];
-          currentBatchTokens = 0;
-        }
-
-        currentBatch.push({ ...message, content });
-        currentBatchTokens += messageTokens;
-      }
-
-      if (currentBatch.length > 0) {
+      const metadata = {
+        chat_id: message.chat_id,
+        message_number: message.message_number,
+        role: message.role,
+        content: message.content
+      };
+      const metadataSize = byteSize(JSON.stringify(metadata));
+      const dynamicSafetyMargin = Math.max(minSafetyMargin, metadataSizeFactor * metadataSize);
+      const maxTokens = baseMaxTokens - dynamicSafetyMargin;
+      if (currentBatchTokens + messageTokens > maxTokens && currentBatch.length > 0) {
         const embeddings = await getEmbeddings(currentBatch, openaiApiKey, openaiModel, embeddingDimension);
         embeddedMessages.push(...embeddings);
+        previousBatchTail = currentBatch.slice(-overlapSize);
+        currentBatch = [...previousBatchTail];
+        currentBatchTokens = previousBatchTail.reduce((sum, msg) => {
+          const msgContent = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
+          let cachedTokens = tokenCache[msgContent];
+          if (cachedTokens === undefined) {
+            cachedTokens = encoder.encode(msgContent).length;
+            tokenCache[msgContent] = cachedTokens;
+          }
+          return sum + cachedTokens;
+        }, 0);
       }
-
-      return embeddedMessages;
-
-    } catch (error) {
-      throw error;
+      currentBatch.push({
+        ...message,
+        content
+      });
+      currentBatchTokens += messageTokens;
     }
+    if (currentBatch.length > 0) {
+      const embeddings = await getEmbeddings(currentBatch, openaiApiKey, openaiModel, embeddingDimension);
+      embeddedMessages.push(...embeddings);
+    }
+    return embeddedMessages;
+  } catch (error) {
+    throw error;
   }
+}
 
   async function getEmbeddings(messages, apiKey, model, dimensions) {
   const inputs = messages.map(message => {
