@@ -1,4 +1,5 @@
 (async () => {
+    let tiktokenPromise = null;
     const style = document.createElement('style');
     style.textContent = `
     :root {
@@ -309,19 +310,22 @@
         settingsButton.parentElement.insertBefore(saveButton, settingsButton.nextSibling);
     }
 
+
     async function loadTiktoken() {
-        if (typeof Tiktoken !== 'undefined') return;
-        return new Promise(async (resolve, reject) => {
-            try {
-                const {
+        if (!tiktokenPromise) {
+            tiktokenPromise = import('https://esm.sh/js-tiktoken@1.0.19/lite')
+                .then(({
                     Tiktoken
-                } = await import('https://esm.sh/js-tiktoken@1.0.19/lite');
-                window.Tiktoken = Tiktoken;
-                resolve();
-            } catch (error) {
-                reject(new Error('Failed to load js-tiktoken library: ' + error));
-            }
-        });
+                }) => {
+                    window.Tiktoken = Tiktoken;
+                })
+                .catch(error => {
+                    console.error('Failed to load js-tiktoken library:', error);
+                    tiktokenPromise = null;
+                    throw error;
+                });
+        }
+        return tiktokenPromise;
     }
 
     async function fetchEncoding(encodingName) {
@@ -332,17 +336,18 @@
         return await res.json();
     }
 
+    const modelEncodings = new Map([
+        ['text-embedding-ada-002', 'cl100k_base'],
+        ['text-embedding-3-small', 'o200k_base'],
+        ['text-embedding-3-large', 'o200k_base'],
+    ]);
+
     function getEncodingName(modelName) {
-        switch (modelName) {
-            case 'text-embedding-ada-002':
-                return 'cl100k_base';
-            case 'text-embedding-3-small':
-                return 'o200k_base';
-            case 'text-embedding-3-large':
-                return 'o200k_base';
-            default:
-                throw new Error(`Unsupported embedding model: ${modelName}`);
+        const encoding = modelEncodings.get(modelName);
+        if (!encoding) {
+            throw new Error(`Unsupported embedding model: ${modelName}`);
         }
+        return encoding;
     }
 
     async function embedChatData(pineconeData) {
@@ -352,31 +357,34 @@
             const openaiModel = localStorage.getItem('saveExtension-openai-model');
             const embeddingDimension = localStorage.getItem('saveExtension-embedding-dimension');
             if (!openaiApiKey || !openaiModel) throw new Error('OpenAI API key and model must be configured.');
+
             const encodingName = getEncodingName(openaiModel);
             const encodingData = await fetchEncoding(encodingName);
             const encoder = new Tiktoken(encodingData);
             const messages = pineconeData.messages;
-            const embeddedMessages = [];
-            const overlapSize = 1;
-            let currentBatch = [];
-            let currentBatchTokens = 0;
-            let previousBatchTail = [];
-            const tokenCache = {};
+
+            const batchedMessages = [];
             const baseMaxTokens = 8191;
             const minSafetyMargin = 50;
             const metadataSizeFactor = 0.1;
+            const tokenCache = {};
 
             function byteSize(str) {
                 return new Blob([str]).size;
             }
 
+            let currentBatch = [];
+            let currentBatchTokens = 0;
+
             for (const message of messages) {
                 const content = typeof message.content === 'string' ? message.content : JSON.stringify(message.content);
+
                 let messageTokens = tokenCache[content];
                 if (messageTokens === undefined) {
                     messageTokens = encoder.encode(content).length;
                     tokenCache[content] = messageTokens;
                 }
+
                 const metadata = {
                     chat_id: message.chat_id,
                     message_number: message.message_number,
@@ -386,37 +394,37 @@
                 const metadataSize = byteSize(JSON.stringify(metadata));
                 const dynamicSafetyMargin = Math.max(minSafetyMargin, metadataSizeFactor * metadataSize);
                 const maxTokens = baseMaxTokens - dynamicSafetyMargin;
+
                 if (currentBatchTokens + messageTokens > maxTokens && currentBatch.length > 0) {
-                    const embeddings = await getEmbeddings(currentBatch, openaiApiKey, openaiModel, embeddingDimension);
-                    embeddedMessages.push(...embeddings);
-                    previousBatchTail = currentBatch.slice(-overlapSize);
-                    currentBatch = [...previousBatchTail];
-                    currentBatchTokens = previousBatchTail.reduce((sum, msg) => {
-                        const msgContent = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
-                        let cachedTokens = tokenCache[msgContent];
-                        if (cachedTokens === undefined) {
-                            cachedTokens = encoder.encode(msgContent).length;
-                            tokenCache[msgContent] = cachedTokens;
-                        }
-                        return sum + cachedTokens;
-                    }, 0);
+                    batchedMessages.push(currentBatch);
+                    currentBatch = [];
+                    currentBatchTokens = 0;
                 }
+
                 currentBatch.push({
                     ...message,
                     content
                 });
                 currentBatchTokens += messageTokens;
             }
+
             if (currentBatch.length > 0) {
-                const embeddings = await getEmbeddings(currentBatch, openaiApiKey, openaiModel, embeddingDimension);
+                batchedMessages.push(currentBatch);
+            }
+
+            const embeddedMessages = [];
+            for (const batch of batchedMessages) {
+                const embeddings = await getEmbeddings(batch, openaiApiKey, openaiModel, embeddingDimension);
                 embeddedMessages.push(...embeddings);
             }
+
             return embeddedMessages;
+
         } catch (error) {
+            console.error('Error in embedChatData:', error);
             throw error;
         }
     }
-
     async function getEmbeddings(messages, apiKey, model, dimensions) {
         const inputs = messages.map(message => {
             let content = typeof message.content === 'string' ? message.content : JSON.stringify(message.content);
