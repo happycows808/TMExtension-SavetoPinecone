@@ -50,6 +50,7 @@
     .pinecone-config-inputs {
       overflow-y: auto;
       max-height: 80vh;
+  padding-bottom: 5px;
     }
 
     .pinecone-input-wrapper {
@@ -87,32 +88,6 @@
     .pinecone-saved-indicator {
       margin-left: 10px;
       color: var(--saved-indicator-color);
-    }
-
-    .pinecone-button {
-      padding: 10px 15px;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-      transition: background-color 0.3s ease;
-      color: var(--button-text-color);
-    }
-
-    .pinecone-save-button {
-      background-color: var(--button-background-color);
-    }
-
-    .pinecone-save-button:hover {
-      background-color: var(--button-hover-background-color);
-    }
-
-    .pinecone-close-button {
-      background-color: #6c757d;
-      margin-left: 10px;
-    }
-
-    .pinecone-close-button:hover {
-      background-color: #545b62;
     }
 
     
@@ -235,8 +210,15 @@
 
         const saveToPineconeButton = document.createElement('button');
         saveToPineconeButton.type = 'button';
-        saveToPineconeButton.textContent = 'Save Chat to Pinecone';
-        saveToPineconeButton.className = 'pinecone-button pinecone-save-button';
+        saveToPineconeButton.className = 'inline-flex items-center px-2 py-1 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:bg-gray-400 disabled:cursor-default transition-colors';
+        const saveIconSpan = document.createElement('span');
+        saveIconSpan.className = 'w-4 h-4 mr-2';
+        saveIconSpan.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 64 64" fill="currentColor" class="w-4 h-4 flex-shrink-0"><path d="M31 48V3M16 20L31 3l15 16" stroke-width="4" stroke-miterlimit="10" stroke-linecap="round" stroke-linejoin="round" stroke="currentColor" fill="none"/><path d="M8 46v16h46V46" stroke-width="4" stroke-miterlimit="10" stroke-linecap="round" stroke-linejoin="round" stroke="currentColor" fill="none"/></svg>`;
+        saveToPineconeButton.appendChild(saveIconSpan);
+
+        const saveLabelSpan = document.createElement('span');
+        saveLabelSpan.textContent = 'Save Chat to Pinecone';
+        saveToPineconeButton.appendChild(saveLabelSpan);
         saveToPineconeButton.onclick = () => {
             getAndProcessChatData();
             modal.remove();
@@ -245,8 +227,15 @@
 
         const closeButton = document.createElement('button');
         closeButton.type = 'button';
-        closeButton.textContent = 'Close';
-        closeButton.className = 'pinecone-button pinecone-close-button';
+        closeButton.className = 'inline-flex items-center px-2 py-1 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-gray-600 hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 disabled:bg-gray-400 disabled:cursor-default transition-colors ml-2';
+        const closeIconSpan = document.createElement('span');
+        closeIconSpan.className = 'w-4 h-4 mr-2';
+        closeIconSpan.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-4 h-4 flex-shrink-0"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>`;
+        closeButton.appendChild(closeIconSpan);
+
+        const closeLabelSpan = document.createElement('span');
+        closeLabelSpan.textContent = 'Close';
+        closeButton.appendChild(closeLabelSpan);
         closeButton.onclick = () => {
             modal.remove();
         };
