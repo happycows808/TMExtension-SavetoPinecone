@@ -309,59 +309,6 @@
         settingsButton.parentElement.insertBefore(saveButton, settingsButton.nextSibling);
     }
 
-    function addSaveButton() {
-        const settingsButton = document.querySelector('button[data-element-id="workspace-tab-settings"]');
-        if (!settingsButton) {
-            console.warn("Settings button not found.");
-            return;
-        }
-
-        const buttonContainer = settingsButton.closest('div');
-        if (!buttonContainer) {
-            console.warn("Button container not found.");
-            return;
-        }
-
-        const saveButton = document.createElement('button');
-        saveButton.setAttribute('data-element-id', 'workspace-tab-save-to-pinecone');
-        saveButton.style.color = window.getComputedStyle(buttonContainer).color;
-        saveButton.style.fontFamily = window.getComputedStyle(buttonContainer).fontFamily;
-        saveButton.style.alignItems = "center";
-        saveButton.className = settingsButton.className;
-
-        const buttonSpan = document.createElement('span');
-        buttonSpan.className = settingsButton.querySelector('span').className;
-
-        const iconSpan = document.createElement('span');
-        const iconSpanInSettings = settingsButton.querySelector('span > svg');
-        if (iconSpanInSettings) {
-            iconSpan.className = iconSpanInSettings.className;
-        } else {
-            iconSpan.className = 'w-4 h-4 flex-shrink-0';
-        }
-
-        iconSpan.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 64 64" fill="currentColor" class="w-4 h-4 flex-shrink-0"><path d="M31 48V3M16 20L31 3l15 16" stroke-width="4" stroke-miterlimit="10" stroke-linecap="round" stroke-linejoin="round" stroke="currentColor" fill="none"/><path d="M8 46v16h46V46" stroke-width="4" stroke-miterlimit="10" stroke-linecap="round" stroke-linejoin="round" stroke="currentColor" fill="none"/></svg>`;
-
-        const labelSpan = document.createElement('span');
-        const labelSpanInSettings = settingsButton.querySelector('span > span');
-        if (labelSpanInSettings) {
-            labelSpan.className = labelSpanInSettings.className;
-        } else {
-            labelSpan.className = 'font-normal self-stretch text-center text-xs leading-4 md:leading-none';
-        }
-        labelSpan.textContent = 'Save';
-
-        buttonSpan.appendChild(iconSpan);
-        buttonSpan.appendChild(labelSpan);
-        saveButton.appendChild(buttonSpan);
-
-        saveButton.onclick = () => {
-            showConfigModal();
-        };
-
-        settingsButton.parentElement.insertBefore(saveButton, settingsButton.nextSibling);
-    }
-
     async function loadTiktoken() {
         if (typeof Tiktoken !== 'undefined') return;
         return new Promise(async (resolve, reject) => {
