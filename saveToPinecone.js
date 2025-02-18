@@ -246,6 +246,93 @@
         document.body.appendChild(modal);
     }
 
+    function showSuccessMessage(message) {
+        let existingModal = document.getElementById('pinecone-success-modal');
+        if (existingModal) {
+            existingModal.remove();
+        }
+
+        let modal = document.createElement('div');
+        modal.id = 'pinecone-success-modal';
+        modal.className = 'pinecone-modal'; // Reuse your existing modal styles
+
+        const modalContent = document.createElement('div');
+        modalContent.className = 'pinecone-modal-content';
+
+        const messageElement = document.createElement('p');
+        messageElement.textContent = message;
+        messageElement.style.color = 'green'; // Or any success color
+        messageElement.style.marginBottom = '10px';
+
+        const closeButton = document.createElement('button');
+        closeButton.type = 'button';
+        closeButton.className = 'inline-flex items-center px-2 py-1 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-gray-600 hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 disabled:bg-gray-400 disabled:cursor-default transition-colors ml-2';
+        closeButton.onclick = () => {
+            modal.remove();
+        };
+
+        const closeIconSpan = document.createElement('span');
+        closeIconSpan.className = 'w-4 h-4 mr-2';
+        closeIconSpan.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-4 h-4 flex-shrink-0"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>`;
+        closeButton.appendChild(closeIconSpan);
+
+        const closeLabelSpan = document.createElement('span');
+        closeLabelSpan.textContent = 'Close';
+        closeButton.appendChild(closeLabelSpan);
+
+        modalContent.appendChild(messageElement);
+        modalContent.appendChild(closeButton);
+        modal.appendChild(modalContent);
+        document.body.appendChild(modal);
+
+        setTimeout(() => {
+            if (document.getElementById('pinecone-success-modal')) {
+                modal.remove();
+            }
+        }, 3000);
+    }
+
+    function showErrorMessage(message) {
+        let existingModal = document.getElementById('pinecone-error-modal');
+        if (existingModal) {
+            existingModal.remove();
+        }
+
+        let modal = document.createElement('div');
+        modal.id = 'pinecone-error-modal';
+        modal.className = 'pinecone-modal';
+
+        const modalContent = document.createElement('div');
+        modalContent.className = 'pinecone-modal-content';
+
+        const messageElement = document.createElement('p');
+        messageElement.textContent = message;
+        messageElement.style.color = 'red';
+        messageElement.style.marginBottom = '10px';
+
+        const closeButton = document.createElement('button');
+        closeButton.type = 'button';
+        closeButton.className = 'inline-flex items-center px-2 py-1 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-gray-600 hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 disabled:bg-gray-400 disabled:cursor-default transition-colors ml-2';
+        closeButton.onclick = () => {
+            modal.remove();
+        };
+
+        const closeIconSpan = document.createElement('span');
+        closeIconSpan.className = 'w-4 h-4 mr-2';
+        closeIconSpan.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-4 h-4 flex-shrink-0"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>`;
+        closeButton.appendChild(closeIconSpan);
+
+        const closeLabelSpan = document.createElement('span');
+        closeLabelSpan.textContent = 'Close';
+        closeButton.appendChild(closeLabelSpan);
+
+        modalContent.appendChild(messageElement);
+        modalContent.appendChild(closeButton);
+        modal.appendChild(modalContent);
+        document.body.appendChild(modal);
+    }
+
+
     function addSaveButton() {
         const settingsButton = document.querySelector('button[data-element-id="workspace-tab-settings"]');
         if (!settingsButton) {
@@ -298,6 +385,7 @@
 
         settingsButton.parentElement.insertBefore(saveButton, settingsButton.nextSibling);
     }
+
 
 
     async function loadTiktoken() {
@@ -500,11 +588,11 @@
                     throw new Error(`Pinecone API error: ${response.status} ${response.statusText} - ${JSON.stringify(errorData)}`);
                 }
             }
-            alert('Chat data saved to Pinecone successfully!');
+            showSuccessMessage('Chat data saved to Pinecone successfully!');
 
         } catch (error) {
             console.error('Error in upsertToPinecone:', error);
-            alert('An error occurred while upserting data to Pinecone: ' + error.message);
+            showErrorMessage('An error occurred while upserting data to Pinecone: ' + error.message);
         }
     }
 
@@ -552,7 +640,7 @@
         try {
             const chatIDFromURL = window.location.hash.match(/#chat=([^&]+)/);
             if (!chatIDFromURL || !chatIDFromURL[1]) {
-                alert('No chat selected.');
+                showErrorMessage('No chat selected.');
                 return;
             }
             const chatID = chatIDFromURL[1];
@@ -581,7 +669,7 @@
 
         } catch (error) {
             console.error('Error in getAndProcessChatData:', error);
-            alert('An error occurred while processing and saving chat data: ' + error.message);
+            showErrorMessage('An error occurred while processing and saving chat data: ' + error.message);
         }
     }
 
