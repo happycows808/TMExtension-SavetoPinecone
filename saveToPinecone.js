@@ -427,157 +427,139 @@
         return encoding;
     }
 
-    async function embedChatData(pineconeData) {
-        try {
-            await loadTiktoken();
-            const openaiApiKey = localStorage.getItem('saveExtension-pinecone-openai-api-key');
-            const openaiModel = localStorage.getItem('saveExtension-openai-model');
-            const embeddingDimension = localStorage.getItem('saveExtension-embedding-dimension');
-            if (!openaiApiKey || !openaiModel) throw new Error('OpenAI API key and model must be configured.');
 
-            const encodingName = getEncodingName(openaiModel);
-            const encodingData = await fetchEncoding(encodingName);
-            const encoder = new Tiktoken(encodingData);
-            const messages = pineconeData.messages;
 
-            const batchedMessages = [];
-            const baseMaxTokens = 8191;
-            const minSafetyMargin = 50;
-            const metadataSizeFactor = 0.1;
-            const tokenCache = {};
+async function embedChatData(pineconeData) {
+    try {
+        await loadTiktoken();
+        const openaiApiKey = localStorage.getItem('saveExtension-pinecone-openai-api-key');
+        const openaiModel = localStorage.getItem('saveExtension-openai-model');
+        const embeddingDimension = localStorage.getItem('saveExtension-embedding-dimension');
 
-            function byteSize(str) {
-                return new Blob([str]).size;
-            }
-
-            let currentBatch = [];
-            let currentBatchTokens = 0;
-
-            for (const message of messages) {
-                const content = typeof message.content === 'string' ? message.content : JSON.stringify(message.content);
-
-                let messageTokens = tokenCache[content];
-                if (messageTokens === undefined) {
-                    messageTokens = encoder.encode(content).length;
-                    tokenCache[content] = messageTokens;
-                }
-
-                const metadata = {
-                    chat_id: message.chat_id,
-                    message_number: message.message_number,
-                    role: message.role,
-                    content: message.content
-                };
-                const metadataSize = byteSize(JSON.stringify(metadata));
-                const dynamicSafetyMargin = Math.max(minSafetyMargin, metadataSizeFactor * metadataSize);
-                const maxTokens = baseMaxTokens - dynamicSafetyMargin;
-
-                if (currentBatchTokens + messageTokens > maxTokens && currentBatch.length > 0) {
-                    batchedMessages.push(currentBatch);
-                    currentBatch = [];
-                    currentBatchTokens = 0;
-                }
-
-                currentBatch.push({
-                    ...message,
-                    content
-                });
-                currentBatchTokens += messageTokens;
-            }
-
-            if (currentBatch.length > 0) {
-                batchedMessages.push(currentBatch);
-            }
-
-            const embeddedMessages = [];
-            for (const batch of batchedMessages) {
-                const embeddings = await getEmbeddings(batch, openaiApiKey, openaiModel, embeddingDimension);
-                embeddedMessages.push(...embeddings);
-            }
-
-            return embeddedMessages;
-
-        } catch (error) {
-            console.error('Error in embedChatData:', error);
-            throw error;
-        }
-    }
-    async function getEmbeddings(messages, apiKey, model, dimensions) {
-        const inputs = messages.map(message => {
-            let content = typeof message.content === 'string' ? message.content : JSON.stringify(message.content);
-
-            if (content.trim() === "") {
-                content = " ";
-            }
-            return content;
-        });
-
-        const requestBody = {
-            input: inputs,
-            model: model,
-        };
-
-        if (dimensions) {
-            requestBody.dimensions = parseInt(dimensions, 10);
+        if (!openaiApiKey || !openaiModel) {
+            showErrorMessage('OpenAI API key and model must be configured in the extension settings.');
+            return;
         }
 
-        const response = await fetch('https://api.openai.com/v1/embeddings', {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${apiKey}`,
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(requestBody),
-        });
+        const encodingName = getEncodingName(openaiModel);
+        const encodingData = await fetchEncoding(encodingName);
+        const encoder = new Tiktoken(encodingData);
+        const messages = pineconeData.messages;
 
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(`OpenAI API error: ${response.status} ${response.statusText} - ${JSON.stringify(errorData)}`);
-        }
+        console.log(`Preparing to save chat to Pinecone...`);
+        const baseMaxTokens = 4096;
+        const batchedMessages = [];
+        let currentBatch = [];
+        let currentBatchTokens = 0;
 
-        const data = await response.json();
-
-        const results = data.data.map((embeddingData, index) => {
-            const message = messages[embeddingData.index];
-            return {
-                id: `${message.chat_id}-message${message.message_number}`,
-                values: embeddingData.embedding,
-                metadata: {
-                    chat_id: message.chat_id,
-                    message_number: message.message_number,
-                    role: message.role,
-                    content: message.content,
-                },
+        for (const message of messages) {
+            const messageObj = {
+                role: message.role,
+                content: typeof message.content === 'string' ? message.content : JSON.stringify(message.content)
             };
-        });
+            const messageTokens = encoder.encode(JSON.stringify(messageObj)).length;
 
-        return results;
-    }
-
-    async function upsertToPinecone(embeddedData) {
-        try {
-            let pineconeHost = localStorage.getItem('saveExtension-pinecone-host');
-            const pineconeApiKey = localStorage.getItem('saveExtension-pinecone-api-key');
-            const pineconeNamespace = localStorage.getItem('saveExtension-pinecone-namespace');
-
-            if (!pineconeHost || !pineconeApiKey || !pineconeNamespace) {
-                throw new Error('Pinecone host, API key, and namespace must be configured.');
+            if (currentBatchTokens + messageTokens > baseMaxTokens) {
+                batchedMessages.push({ messages: currentBatch });
+                currentBatch = [];
+                currentBatchTokens = 0;
             }
 
-            pineconeHost = pineconeHost.replace(/^https?:\/\//, '');
-            const pineconeUrl = `https://${pineconeHost}/vectors/upsert`;
-            const batchSize = 1000;
-            for (let i = 0; i < embeddedData.length; i += batchSize) {
-                const batch = embeddedData.slice(i, i + batchSize);
-                const requestBody = {
-                    vectors: batch,
-                    namespace: pineconeNamespace,
-                };
+            currentBatch.push(messageObj);
+            currentBatchTokens += messageTokens;
+        }
 
-                const response = await fetch(pineconeUrl, {
+        if (currentBatch.length > 0) {
+            batchedMessages.push({ messages: currentBatch });
+        }
+
+        console.log(`Processing chat in ${batchedMessages.length} batches.`);
+
+        const embeddedMessages = [];
+        let totalChunks = 0;
+        let skippedChunks = 0;
+
+        for (let i = 0; i < batchedMessages.length; i++) {
+            const batch = batchedMessages[i];
+            console.log(`Processing batch ${i + 1} of ${batchedMessages.length}...`);
+
+            try {
+                const { embeddings, skipped } = await getEmbeddings(batch.messages, openaiApiKey, openaiModel, embeddingDimension, encoder);
+                embeddedMessages.push(...embeddings);
+                totalChunks += (embeddings.length + skipped);
+                skippedChunks += skipped;
+            } catch (embeddingError) {
+                console.error(`Error embedding batch ${i + 1}:`, embeddingError);
+                showErrorMessage('An error occurred while embedding part of the chat.  Data may be incomplete.'); 
+                return;
+            }
+        }
+
+        console.log(`Chat embedding complete.`);
+        return { embeddings: embeddedMessages, totalChunks, skippedChunks };
+
+    } catch (error) {
+        console.error('Error in embedChatData:', error);
+        showErrorMessage('An error occurred while preparing chat data for embedding.');
+        throw error;
+    }
+}
+
+async function getEmbeddings(messages, apiKey, model, dimensions, tiktokenEncoder) {
+    let input = JSON.stringify(messages);
+    let maxTokens = 8192;
+    let overlapTokens = 1024;
+    const maxRetries = 5;
+    let skipped = 0;
+
+    if (overlapTokens >= maxTokens) {
+        console.warn(`overlapTokens (${overlapTokens}) is >= maxTokens (${maxTokens}). Adjusting overlapTokens.`);
+        overlapTokens = maxTokens - 1;
+    }
+
+    let chunks = [];
+    let encoded = tiktokenEncoder.encode(input);
+
+    if (encoded.length > maxTokens) {
+        console.log("Large chat, splitting into smaller parts...");
+        chunks = chunkInput(encoded, tiktokenEncoder, maxTokens, overlapTokens);
+    } else {
+        chunks.push(input);
+        console.log("Input within token limit. No chunking required.");
+    }
+
+    const results = [];
+    for (let i = 0; i < chunks.length; i++) {
+        let chunk = chunks[i];
+        let chunkEncoded = tiktokenEncoder.encode(chunk);
+        let success = false;
+        let retryCount = 0;
+
+        while (!success && retryCount < maxRetries) {
+            if (chunkEncoded.length > maxTokens) {
+                console.error(`Chunk ${i + 1} exceeds max tokens (${chunkEncoded.length} > ${maxTokens}).`);
+                // Instead of throwing, we'll log and break out of the retry loop
+                console.warn(`Skipping chunk ${i+1} due to excessive size.`);
+                skipped++;
+                success = true;
+                break; 
+            }
+
+            const requestBody = {
+                input: chunk,
+                model: model,
+            };
+
+            if (dimensions) {
+                requestBody.dimensions = parseInt(dimensions, 10);
+            }
+
+            try {
+                console.log(`Sending chunk ${i + 1} of ${chunks.length} to OpenAI for embedding (Attempt ${retryCount + 1}, Token Count: ${chunkEncoded.length}).`);
+                const response = await fetch('https://api.openai.com/v1/embeddings', {
                     method: 'POST',
                     headers: {
-                        'Api-Key': pineconeApiKey,
+                        'Authorization': `Bearer ${apiKey}`,
                         'Content-Type': 'application/json',
                     },
                     body: JSON.stringify(requestBody),
@@ -585,16 +567,129 @@
 
                 if (!response.ok) {
                     const errorData = await response.json();
-                    throw new Error(`Pinecone API error: ${response.status} ${response.statusText} - ${JSON.stringify(errorData)}`);
-                }
-            }
-            showSuccessMessage('Chat data saved to Pinecone successfully!');
+                    if (response.status === 400 && errorData.error && errorData.error.message.includes("maximum context length") && i === 0) {
+                        console.warn(`Chunk ${i + 1} exceeded token limit. Reducing chunk size and retrying (Attempt ${retryCount + 1}).`);
+                        retryCount++;
+                        maxTokens = Math.floor(maxTokens * 0.75);
+                        overlapTokens = Math.floor(overlapTokens * 0.75);
+                        if (overlapTokens >= maxTokens) {
+                            overlapTokens = maxTokens - 1;
+                        }
+                        chunks = chunkInput(encoded, tiktokenEncoder, maxTokens, overlapTokens);
+                        chunk = chunks[i];
+                        chunkEncoded = tiktokenEncoder.encode(chunk);
+                        console.log(`Re-chunked into ${chunks.length} parts. Trying again`);
+                        continue;
+                    } else {
+                        console.error(`OpenAI API error: ${response.status} - ${errorData.error.message}`);
+                        break;
+                    }
+                } else {
+                    const data = await response.json();
+                    const embeddingData = data.data[0];
 
-        } catch (error) {
-            console.error('Error in upsertToPinecone:', error);
-            showErrorMessage('An error occurred while upserting data to Pinecone: ' + error.message);
+                    results.push({
+                        id: `${messages[0].chat_id}-batch-${i}`,
+                        values: embeddingData.embedding,
+                        metadata: {
+                            chat_id: messages[0].chat_id,
+                            message_count: messages.length,
+                            chunk_number: i + 1,
+                            total_chunks: chunks.length,
+                        },
+                    });
+                    success = true;
+                }
+            } catch (error) {
+                console.error(`Error in getEmbeddings for chunk ${i + 1}:`, error);
+                // Don't re-throw; we'll handle the failure below
+                break; // Exit the retry loop on fetch errors
+            }
+        }
+
+        if (!success) {
+            console.warn(`Failed to embed chunk ${i + 1} after ${retryCount} retries. Skipping this chunk.`);
+            showErrorMessage(`Failed to process part of the chat (chunk ${i + 1}).  Continuing with the rest...`);
+            skipped++; // Increment skipped count
+            // Don't throw, just continue to the next chunk
         }
     }
+    console.log(`Embedding process complete. ${results.length} of ${chunks.length} chunks embedded.`);
+    return { embeddings: results, skipped }; // Return results and skipped count
+}
+
+function chunkInput(encoded, encoder, maxTokens, overlapTokens) {
+    const chunks = [];
+    let start = 0;
+    let end = 0;
+    let iterations = 0;
+    const maxIterations = 10000;
+
+    while (end < encoded.length) {
+        iterations++;
+        if (iterations > maxIterations) {
+            console.error("Maximum iterations reached in chunking loop. This indicates a logic error.");
+            throw new Error("Maximum iterations reached in chunking loop.");
+        }
+
+        const newEnd = Math.min(start + maxTokens, encoded.length);
+        const chunkEncoded = encoded.slice(start, newEnd);
+        const chunk = encoder.decode(chunkEncoded);
+        chunks.push(chunk);
+
+        start = Math.max(0, newEnd - overlapTokens);
+        start = Math.min(start + 1, newEnd);
+        end = newEnd;
+    }
+    return chunks;
+}
+
+async function upsertToPinecone(embeddedData, totalChunks, skippedChunks) { // Add parameters
+    try {
+        let pineconeHost = localStorage.getItem('saveExtension-pinecone-host');
+        const pineconeApiKey = localStorage.getItem('saveExtension-pinecone-api-key');
+        const pineconeNamespace = localStorage.getItem('saveExtension-pinecone-namespace');
+
+        if (!pineconeHost || !pineconeApiKey || !pineconeNamespace) {
+            throw new Error('Pinecone host, API key, and namespace must be configured.');
+        }
+
+        pineconeHost = pineconeHost.replace(/^https?:\/\//, '');
+        const pineconeUrl = `https://${pineconeHost}/vectors/upsert`;
+        const batchSize = 1000;
+        for (let i = 0; i < embeddedData.length; i += batchSize) {
+            const batch = embeddedData.slice(i, i + batchSize);
+            const requestBody = {
+                vectors: batch,
+                namespace: pineconeNamespace,
+            };
+
+            const response = await fetch(pineconeUrl, {
+                method: 'POST',
+                headers: {
+                    'Api-Key': pineconeApiKey,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(requestBody),
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(`Pinecone API error: ${response.status} ${response.statusText} - ${JSON.stringify(errorData)}`);
+            }
+        }
+
+        let successMessage = 'Chat data saved to Pinecone successfully!';
+        if (skippedChunks > 0) {
+            successMessage = `Chat data partially saved to Pinecone. ${skippedChunks} of ${totalChunks} chunks were skipped due to errors.`;
+        }
+        showSuccessMessage(successMessage);
+
+    } catch (error) {
+        console.error('Error in upsertToPinecone:', error);
+        showErrorMessage('An error occurred while upserting data to Pinecone: ' + error.message);
+    }
+}
 
     async function openDB() {
         return new Promise((resolve, reject) => {
@@ -636,42 +731,42 @@
         });
     }
 
-    async function getAndProcessChatData() {
-        try {
-            const chatIDFromURL = window.location.hash.match(/#chat=([^&]+)/);
-            if (!chatIDFromURL || !chatIDFromURL[1]) {
-                showErrorMessage('No chat selected.');
-                return;
-            }
-            const chatID = chatIDFromURL[1];
-
-            const db = await openDB();
-            const chat = await getChatByID(db, chatID);
-
-            const chat_id = chat.chatID || chat.id || '';
-            const chatTitle = chat.chatTitle || chat.title || 'Untitled Chat';
-            const messages = chat.messages || chat.conversation || [];
-
-            const pineconeData = {
-                chat_id: chat_id,
-                chatTitle: chatTitle,
-                messages: messages.map((message, index) => ({
-                    message_number: index,
-                    content: message.content,
-                    createdAt: message.createdAt,
-                    role: message.role,
-                    chat_id: chat_id,
-                })),
-            };
-
-            const embeddedData = await embedChatData(pineconeData);
-            await upsertToPinecone(embeddedData);
-
-        } catch (error) {
-            console.error('Error in getAndProcessChatData:', error);
-            showErrorMessage('An error occurred while processing and saving chat data: ' + error.message);
+   async function getAndProcessChatData() {
+    try {
+        const chatIDFromURL = window.location.hash.match(/#chat=([^&]+)/);
+        if (!chatIDFromURL || !chatIDFromURL[1]) {
+            showErrorMessage('No chat selected.');
+            return;
         }
+        const chatID = chatIDFromURL[1];
+
+        const db = await openDB();
+        const chat = await getChatByID(db, chatID);
+
+        const chat_id = chat.chatID || chat.id || '';
+        const chatTitle = chat.chatTitle || chat.title || 'Untitled Chat';
+        const messages = chat.messages || chat.conversation || [];
+
+        const pineconeData = {
+            chat_id: chat_id,
+            chatTitle: chatTitle,
+            messages: messages.map((message, index) => ({
+                message_number: index,
+                content: message.content,
+                createdAt: message.createdAt,
+                role: message.role,
+                chat_id: chat_id,
+            })),
+        };
+
+        const { embeddings, totalChunks, skippedChunks } = await embedChatData(pineconeData);
+        await upsertToPinecone(embeddings, totalChunks, skippedChunks);
+
+    } catch (error) {
+        console.error('Error in getAndProcessChatData:', error);
+        showErrorMessage('An error occurred while processing and saving chat data: ' + error.message);
     }
+}
 
     addSaveButton();
 })();
