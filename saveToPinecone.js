@@ -99,7 +99,6 @@
         color: lightgreen !important;
     }
 
-    /* Style the buttons in dark mode - General button styles */
     html.dark .pinecone-modal-content button {
       color: #fff !important;
     }
@@ -143,7 +142,9 @@
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        text-align: center; /* Ensure text is centered */
+        text-align: center;
+	    max-width: 500px;
+        width: fit-content;
     }
 
 
@@ -152,7 +153,7 @@
         width: 95%; 
       }
       .pinecone-input-label {
-          font-weight: normal; 
+        font-weight: normal; 
       }
     }
   `;
@@ -552,7 +553,7 @@
                 } catch (embeddingError) {
                     console.error(`Error embedding batch ${i + 1}:`, embeddingError);
                     showErrorMessage('An error occurred while embedding part of the chat.  Data may be incomplete.'); // User-friendly error
-                    return; 
+                    return;
                 }
             }
 
@@ -680,7 +681,7 @@
         return {
             embeddings: results,
             skipped
-        }; 
+        };
     }
 
     function chunkInput(encoded, encoder, maxTokens, overlapTokens) {
