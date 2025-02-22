@@ -28,7 +28,7 @@ After installing the extension, you need to configure your Pinecone and OpenAI c
 
     *   **Pinecone Index Host URL:** The URL of your Pinecone index (e.g., `your-index-host.pinecone.io`).  *`https://` is optional*.
     *   **Pinecone API Key:** Your Pinecone API key.
-    *   **Namespace:**  A namespace for this chat (e.g., `chat01`).  Use a unique namespace for each chat to avoid data being overwritten by another chat.
+    *   **Namespace:**  A namespace for this chat (e.g., `chat01`). To avoid data overwritting, use a different namespace for each chat.
     *   **OpenAI Embedding Model:** The OpenAI embedding model to use (e.g., `text-embedding-3-small`).  See OpenAI's documentation for available models.
     *   **Embedding Dimension (Optional):** The dimension of the embedding vector. Only enter if you want to use a specific dimension other than the default one.
     *   **OpenAI API Key:** Your OpenAI API key. This should be fetched automatically.
