@@ -661,6 +661,7 @@
                                 message_count: messages.length,
                                 chunk_number: i + 1,
                                 total_chunks: chunks.length,
+			        text: chunk,  // ADD THIS LINE - saves the actual text!
                             },
                         });
                         success = true;
